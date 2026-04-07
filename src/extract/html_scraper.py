@@ -6,8 +6,11 @@ This script handles fetching and formatting html and json-ld listing data from C
 # Listing data class or validation with pydantic
 
 import json
+import logging
 import httpx
 from selectolax.lexbor import LexborHTMLParser, LexborNode
+
+logger = logging.getLogger(__name__)
 
 
 class ListingDataError(Exception):
@@ -20,6 +23,10 @@ class ListingsParseError(Exception):
     """Raised when no listings found within html tree"""
 
     pass
+
+
+class ListingsMergeError(Exception):
+    """Raised when an issue with merging listing data occurs"""
 
 
 def get_html(url: str) -> LexborHTMLParser:
@@ -56,6 +63,7 @@ def parse_listing(listing_node: LexborNode) -> dict:
         title = listing_node.css_first(".title", strict=True).text()
 
     except (ValueError, ListingDataError) as e:
+        logger.debug("Failed to parse listing: %s", listing_node.html)
         raise ListingDataError("Missing required listing fields") from e
 
     link_node = listing_node.css_first("a")
@@ -97,8 +105,8 @@ def json_formatter(json_listing: dict) -> dict:
     required_listing_keys = (
         ("name", "name"),
         ("latitude", "latitude"),
-        ("numberOfBathroomsTotal", "bathrooms"),
         ("longitude", "longitude"),
+        ("numberOfBathroomsTotal", "bathrooms"),
     )
     optional_listing_keys = (
         ("numberOfBedrooms", "bedrooms"),
@@ -111,6 +119,7 @@ def json_formatter(json_listing: dict) -> dict:
             formatted_listing[dict_key] = json_listing["item"][css_class]
 
         except KeyError as e:
+            logger.debug("Unable to format listing: %s", json_listing["item"])
             raise ListingDataError(
                 "Missing required information from JSON-LD listing entry"
             ) from e
@@ -120,5 +129,39 @@ def json_formatter(json_listing: dict) -> dict:
             formatted_listing[dict_key] = json_listing["item"][css_class]
         except KeyError:
             formatted_listing[dict_key] = None
+            logger.debug(
+                "Entry: %s missing parameter: %s",
+                json_listing["item"]["name"],
+                css_class,
+            )
 
     return formatted_listing
+
+
+def listing_merger(json_listings: list, html_listings: list) -> list:
+    """Takes listing data extracted from both json-ld script tag and html body and merges them into a single list containing merged data dicts as elements"""
+
+    final_combined_list = []
+
+    try:
+        merged_listings = zip(json_listings, html_listings, strict=True)
+
+    except ValueError as e:
+        raise ListingsMergeError(
+            "An issue with merging the listing data occured:"
+        ) from e
+
+    try:
+        for json_dict, html_dict in merged_listings:
+            combined_dict = json_dict | html_dict
+
+            name = combined_dict.get("name")
+            title = combined_dict.get("title")
+
+            if name == title:
+                combined_dict.pop("title")
+
+    except AssertionError as e:
+        raise
+
+    return final_combined_list
