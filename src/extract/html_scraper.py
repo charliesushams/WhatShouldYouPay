@@ -9,6 +9,7 @@ import json
 import logging
 import httpx
 from selectolax.lexbor import LexborHTMLParser, LexborNode
+import emoji
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,9 @@ def parse_listing(listing_node: LexborNode) -> dict:
     try:
         price = listing_node.css_first(".price", strict=True).text()
         formatted_price = price_formatter(price)
-        title = listing_node.css_first(".title", strict=True).text()
-
+        title_raw = listing_node.css_first(".title", strict=True).text()
+        title = emoji.replace_emoji(title_raw, "")
+    
     except (ValueError, ListingDataError) as e:
         logger.debug("Failed to parse listing: %s", listing_node.html)
         raise ListingDataError("Missing required listing fields") from e
@@ -103,7 +105,7 @@ def json_formatter(json_listing: dict) -> dict:
     """Takes listing entry from JSON-LD and returns formatted listing entry"""
 
     required_listing_keys = (
-        ("name", "name"),
+        ("name", "title"),
         ("latitude", "latitude"),
         ("longitude", "longitude"),
         ("numberOfBathroomsTotal", "bathrooms"),
@@ -134,34 +136,35 @@ def json_formatter(json_listing: dict) -> dict:
                 json_listing["item"]["name"],
                 css_class,
             )
-
+    formatted_listing["title"] = emoji.replace_emoji(formatted_listing["title"], "")
     return formatted_listing
 
 
-def listing_merger(json_listings: list, html_listings: list) -> list:
-    """Takes listing data extracted from both json-ld script tag and html body and merges them into a single list containing merged data dicts as elements"""
+# No longer used
+# def listing_merger(json_listings: list, html_listings: list) -> list:
+#     """Takes listing data extracted from both json-ld script tag and html body and merges them into a single list containing merged data dicts as elements"""
 
-    final_combined_list = []
+#     final_combined_list = []
 
-    try:
-        merged_listings = zip(json_listings, html_listings, strict=True)
+#     try:
+#         merged_listings = zip(json_listings, html_listings, strict=True)
 
-    except ValueError as e:
-        raise ListingsMergeError(
-            "An issue with merging the listing data occured:"
-        ) from e
+#     except ValueError as e:
+#         raise ListingsMergeError(
+#             "An issue with merging the listing data occured:"
+#         ) from e
 
-    try:
-        for json_dict, html_dict in merged_listings:
-            combined_dict = json_dict | html_dict
+#     try:
+#         for json_dict, html_dict in merged_listings:
+#             combined_dict = json_dict | html_dict
 
-            name = combined_dict.get("name")
-            title = combined_dict.get("title")
+#             name = combined_dict.get("name")
+#             title = combined_dict.get("title")
 
-            if name == title:
-                combined_dict.pop("title")
+#             if name == title:
+#                 combined_dict.pop("title")
 
-    except AssertionError as e:
-        raise
+#     except AssertionError as e:
+#         raise
 
-    return final_combined_list
+#     return final_combined_list
